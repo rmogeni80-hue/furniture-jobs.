@@ -38,6 +38,15 @@ function formatPrice(price) {
 }
 
 function App() {
+  // --- AUTH STATES ---
+  const [session, setSession] = useState(null);
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
+
+  // --- APP STATES ---
   const [jobs, setJobs] = useState([]);
   const [showPostForm, setShowPostForm] = useState(false);
   const [userRole, setUserRole] = useState("worker"); 
@@ -53,6 +62,22 @@ function App() {
   const [isUploading, setIsUploading] = useState(false); 
 
   useEffect(() => {
+    // Check if user is already logged in
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+
+    // Listen for login/logout changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
     fetchJobs();
   }, []);
 
@@ -63,6 +88,29 @@ function App() {
       .order('created_at', { ascending: false });
     
     if (!error) setJobs(data);
+  };
+
+  // --- AUTH FUNCTIONS ---
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    setAuthError("");
+
+    if (isRegistering) {
+      // Sign Up
+      const { error } = await supabase.auth.signUp({ email, password });
+      if (error) setAuthError(error.message);
+      else alert("Registration successful! You can now log in.");
+    } else {
+      // Log In
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) setAuthError(error.message);
+    }
+    setAuthLoading(false);
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
   };
 
   const handlePostJob = async (e) => {
@@ -124,10 +172,72 @@ function App() {
     );
   });
 
+  // --- IF NOT LOGGED IN, SHOW THE AUTH SCREEN ---
+  if (!session) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', backgroundColor: '#f4f4f4', padding: '20px' }}>
+        <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '10px', boxShadow: '0 4px 10px rgba(0,0,0,0.1)', width: '100%', maxWidth: '400px' }}>
+          
+          <h2 style={{ textAlign: 'center', color: '#2e7d32', marginBottom: '20px' }}>
+            {isRegistering ? "Create an Account" : "Login to FurnitureWork"}
+          </h2>
+
+          {authError && <p style={{ color: 'red', textAlign: 'center', fontSize: '14px' }}>{authError}</p>}
+
+          <form onSubmit={handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+            <input 
+              type="email" 
+              placeholder="Email Address" 
+              value={email} 
+              onChange={(e) => setEmail(e.target.value)} 
+              required 
+              style={{ padding: '12px', borderRadius: '5px', border: '1px solid #ccc' }}
+            />
+            <input 
+              type="password" 
+              placeholder="Password" 
+              value={password} 
+              onChange={(e) => setPassword(e.target.value)} 
+              required 
+              style={{ padding: '12px', borderRadius: '5px', border: '1px solid #ccc' }}
+            />
+            <button 
+              type="submit" 
+              disabled={authLoading} 
+              style={{ padding: '12px', backgroundColor: '#2e7d32', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}
+            >
+              {authLoading ? "Please wait..." : (isRegistering ? "Sign Up" : "Log In")}
+            </button>
+          </form>
+
+          <p style={{ textAlign: 'center', marginTop: '20px', fontSize: '14px' }}>
+            {isRegistering ? "Already have an account?" : "Don't have an account?"}
+            <button 
+              onClick={() => { setIsRegistering(!isRegistering); setAuthError(""); }} 
+              style={{ background: 'none', border: 'none', color: '#2e7d32', cursor: 'pointer', fontWeight: 'bold', marginLeft: '5px' }}
+            >
+              {isRegistering ? "Log In" : "Sign Up"}
+            </button>
+          </p>
+
+        </div>
+      </div>
+    );
+  }
+
+  // --- IF LOGGED IN, SHOW THE MAIN APP ---
   return (
     <div className="app-container">
       <header className="header">
-        <h1>FurnitureWork</h1>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: '15px' }}>
+          <h1 style={{ margin: 0 }}>FurnitureWork</h1>
+          <button 
+            onClick={handleLogout} 
+            style={{ padding: '8px 12px', backgroundColor: '#d32f2f', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '12px' }}
+          >
+            Logout
+          </button>
+        </div>
         
         <div className="role-toggle">
           <button 
@@ -166,15 +276,7 @@ function App() {
           placeholder="🔍 Search by job, shop, or location..." 
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          style={{ 
-            padding: '12px', 
-            marginBottom: '20px', 
-            width: '100%', 
-            borderRadius: '8px', 
-            border: '1px solid #ccc',
-            fontSize: '16px',
-            boxSizing: 'border-box'
-          }}
+          style={{ padding: '12px', marginBottom: '20px', width: '100%', borderRadius: '8px', border: '1px solid #ccc', fontSize: '16px', boxSizing: 'border-box' }}
         />
 
         <h2>Available Jobs ({filteredJobs.length})</h2>
@@ -182,32 +284,15 @@ function App() {
         
         {filteredJobs.map(job => (
           <div key={job.id} className="job-card">
-            
             {job.image_url && (
-              <img 
-                src={job.image_url} 
-                alt={job.title} 
-                style={{ width: '100%', height: '200px', objectFit: 'cover', borderRadius: '8px', marginBottom: '10px' }} 
-              />
+              <img src={job.image_url} alt={job.title} style={{ width: '100%', height: '200px', objectFit: 'cover', borderRadius: '8px', marginBottom: '10px' }} />
             )}
-
             <h3>{job.title}</h3>
             <p><strong>Shop:</strong> {job.shop}</p>
             <p><strong>Location:</strong> {job.location}</p>
-            
-            <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
-              Posted {getTimeAgo(job.created_at)}
-            </p>
-
+            <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>Posted {getTimeAgo(job.created_at)}</p>
             <p className="pay-tag">{formatPrice(job.pay)}</p>
-            
-            <a 
-              href={`https://wa.me/${job.phone}?text=Hello ${job.shop}, I saw your job for a ${job.title} on FurnitureWork. I am interested!`} 
-              target="_blank" 
-              rel="noreferrer"
-              className="apply-btn"
-              style={{ display: 'block', textAlign: 'center', textDecoration: 'none' }}
-            >
+            <a href={`https://wa.me/${job.phone}?text=Hello ${job.shop}, I saw your job for a ${job.title} on FurnitureWork. I am interested!`} target="_blank" rel="noreferrer" className="apply-btn" style={{ display: 'block', textAlign: 'center', textDecoration: 'none' }}>
               Apply via WhatsApp
             </a>
           </div>
@@ -225,7 +310,6 @@ function App() {
           <form className="modal-content" onSubmit={handlePostJob}>
             <h2>Post a Job</h2>
             <p>First job is free.</p>
-            
             <select value={newTitle} onChange={(e) => setNewTitle(e.target.value)} required style={{ padding: '10px', width: '100%', marginBottom: '10px', borderRadius: '5px' }}>
               <option value="">Select Job Type</option>
               <option value="L seat seat design 7seater">L seat seat design 7seater</option>
@@ -233,17 +317,14 @@ function App() {
               <option value="Mama Fua (Laundry)">Mama Fua (Laundry)</option>
               <option value="Other Furniture Work">Other Furniture Work</option>
             </select>
-
             <input type="text" placeholder="Shop Name" value={newShop} onChange={(e) => setNewShop(e.target.value)} required />
             <input type="text" placeholder="Payment Amount (e.g. 1500)" value={newPay} onChange={(e) => setNewPay(e.target.value)} required />
             <input type="text" placeholder="Location (e.g. Kasarani)" value={newLocation} onChange={(e) => setNewLocation(e.target.value)} required />
             <input type="text" placeholder="WhatsApp Number (e.g. 254712345678)" value={newPhone} onChange={(e) => setNewPhone(e.target.value)} required />
-            
             <div style={{ margin: '10px 0' }}>
               <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px' }}>Upload Job Photo (Optional)</label>
               <input type="file" accept="image/*" onChange={(e) => setNewPhoto(e.target.files[0])} />
             </div>
-            
             <button type="submit" className="submit-btn" disabled={isUploading}>
               {isUploading ? "Uploading..." : "Post Job"}
             </button>
@@ -252,28 +333,15 @@ function App() {
         </div>
       )}
 
-      {/* FOOTER SECTION WITH FOUNDER INFO */}
-      <footer style={{ 
-        textAlign: 'center', 
-        padding: '30px 20px', 
-        marginTop: '50px', 
-        backgroundColor: '#f4f4f4', 
-        borderTop: '1px solid #ddd',
-        color: '#555',
-        borderBottomLeftRadius: '12px',
-        borderBottomRightRadius: '12px'
-      }}>
+      <footer style={{ textAlign: 'center', padding: '30px 20px', marginTop: '50px', backgroundColor: '#f4f4f4', borderTop: '1px solid #ddd', color: '#555', borderBottomLeftRadius: '12px', borderBottomRightRadius: '12px' }}>
         <h3 style={{ margin: '0 0 5px 0', color: '#2e7d32' }}>FurnitureWork</h3>
         <p style={{ margin: '0 0 15px 0', fontWeight: 'bold' }}>Founder: Stephen Mogeni</p>
-        
         <p style={{ margin: '5px 0' }}>Connecting skilled workers with top furniture shops.</p>
-        
         <p style={{ margin: '15px 0 5px 0' }}>
           Need help or found a bug? <br/>
           Email: <strong><a href="mailto:rmogeni80@gmail.com" style={{color: '#2e7d32', textDecoration: 'none'}}>rmogeni80@gmail.com</a></strong> <br/>
           Phone: <strong style={{color: '#2e7d32'}}>0110448044</strong>
         </p>
-        
         <p style={{ marginTop: '20px', fontSize: '12px', color: '#888' }}>
           &copy; {new Date().getFullYear()} FurnitureWork. All rights reserved.
         </p>
