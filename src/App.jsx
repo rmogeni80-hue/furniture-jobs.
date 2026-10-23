@@ -5,7 +5,6 @@ import { usePaystackPayment } from 'react-paystack';
 import 'leaflet/dist/leaflet.css';
 import './App.css';
 
-// 1. FIX THE MAP ICONS
 import L from 'leaflet';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
@@ -50,6 +49,7 @@ function App() {
   const [showPostForm, setShowPostForm] = useState(false);
   const [userRole, setUserRole] = useState("worker"); 
   const [searchTerm, setSearchTerm] = useState(""); 
+  const [viewMode, setViewMode] = useState("all"); // "all" or "my"
 
   // --- COMMENT STATES ---
   const [comments, setComments] = useState([]);
@@ -66,8 +66,6 @@ function App() {
   const [isUploading, setIsUploading] = useState(false); 
 
   // --- PAYSTACK CONFIGURATION ---
-  // The amount here is for the Shop Owner to post a job. 
-  // Let's set it to KES 100 (10000 kobo).
   const paystackConfig = {
     reference: (new Date()).getTime().toString(),
     email: session?.user?.email || "shopowner@example.com", 
@@ -77,18 +75,14 @@ function App() {
 
   const initializePayment = usePaystackPayment(paystackConfig);
 
-  // This function runs AFTER the shop owner successfully pays
   const onPaymentSuccess = async (reference) => {
     console.log("Payment successful for posting job!", reference);
-    
-    // Now that they paid, we actually save the job to the database
     await saveJobToDatabase();
   };
 
   const onPaymentClose = () => {
     alert("Payment cancelled. You must pay to post a job.");
   };
-  // ------------------------------
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -158,15 +152,11 @@ function App() {
     await supabase.auth.signOut();
   };
 
-  // 1. This function is triggered when the Shop Owner clicks "Proceed to Payment"
   const handlePostJobClick = (e) => {
-    e.preventDefault(); // Prevent the form from submitting normally
-    
-    // Trigger the Paystack Popup
+    e.preventDefault(); 
     initializePayment(onPaymentSuccess, onPaymentClose);
   };
 
-  // 2. This function actually saves the job to Supabase (runs only after payment)
   const saveJobToDatabase = async () => {
     setIsUploading(true);
     let imageUrl = null;
@@ -191,13 +181,20 @@ function App() {
     }
     
     const { error } = await supabase.from('jobs').insert([
-      { title: newTitle, shop: newShop, pay: newPay, location: newLocation, phone: newPhone, image_url: imageUrl }
+      { 
+        title: newTitle, 
+        shop: newShop, 
+        pay: newPay, 
+        location: newLocation, 
+        phone: newPhone, 
+        image_url: imageUrl,
+        owner_email: session.user.email // 🟢 WE SAVE THE OWNER'S EMAIL HERE
+      }
     ]);
 
     if (error) {
       alert("Error posting job: " + error.message);
     } else {
-      // Clear form and close modal
       setNewTitle(""); setNewShop(""); setNewPay(""); setNewLocation(""); setNewPhone(""); setNewPhoto(null);
       setShowPostForm(false);
       fetchJobs();
@@ -206,13 +203,33 @@ function App() {
     setIsUploading(false);
   };
 
+  // 🟢 NEW FUNCTION: Delete a job
+  const handleDeleteJob = async (jobId) => {
+    const confirmDelete = window.confirm("Are you sure you want to delete this job?");
+    if (!confirmDelete) return;
+
+    const { error } = await supabase.from('jobs').delete().eq('id', jobId);
+    
+    if (error) {
+      alert("Error deleting job: " + error.message);
+    } else {
+      alert("Job deleted.");
+      fetchJobs(); // Refresh the list
+    }
+  };
+
+  // Filter logic updated to handle "My Jobs" vs "All Jobs"
   const filteredJobs = jobs.filter((job) => {
     const searchLower = searchTerm.toLowerCase();
-    return (
+    const matchesSearch = 
       job.title?.toLowerCase().includes(searchLower) ||
       job.shop?.toLowerCase().includes(searchLower) ||
-      job.location?.toLowerCase().includes(searchLower)
-    );
+      job.location?.toLowerCase().includes(searchLower);
+    
+    if (viewMode === "my" && userRole === "owner") {
+      return matchesSearch && job.owner_email === session?.user?.email;
+    }
+    return matchesSearch;
   });
 
   if (!session) {
@@ -249,15 +266,33 @@ function App() {
           <button onClick={handleLogout} style={{ padding: '8px 12px', backgroundColor: '#d32f2f', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '12px' }}>Logout</button>
         </div>
         <div className="role-toggle">
-          <button className={userRole === "worker" ? "active-role" : "inactive-role"} onClick={() => setUserRole("worker")}>👷 I am a Worker</button>
+          <button className={userRole === "worker" ? "active-role" : "inactive-role"} onClick={() => { setUserRole("worker"); setViewMode("all"); }}>👷 I am a Worker</button>
           <button className={userRole === "owner" ? "active-role" : "inactive-role"} onClick={() => setUserRole("owner")}>🏪 I am a Shop Owner</button>
         </div>
+        
+        {/* 🟢 NEW BUTTON: View My Jobs for Shop Owners */}
+        {userRole === "owner" && (
+          <div style={{ marginTop: '15px', display: 'flex', gap: '10px' }}>
+            <button 
+              onClick={() => setViewMode("all")} 
+              style={{ padding: '8px 15px', backgroundColor: viewMode === "all" ? '#333' : '#e0e0e0', color: viewMode === "all" ? 'white' : '#333', border: 'none', borderRadius: '20px', cursor: 'pointer', fontSize: '14px' }}
+            >
+              All Jobs
+            </button>
+            <button 
+              onClick={() => setViewMode("my")} 
+              style={{ padding: '8px 15px', backgroundColor: viewMode === "my" ? '#333' : '#e0e0e0', color: viewMode === "my" ? 'white' : '#333', border: 'none', borderRadius: '20px', cursor: 'pointer', fontSize: '14px' }}
+            >
+              My Posted Jobs
+            </button>
+          </div>
+        )}
       </header>
 
       <div className="map-container">
         <MapContainer center={[-1.286389, 36.817223]} zoom={11} style={{ height: "100%", width: "100%" }}>
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-          {jobs.map((job, index) => (
+          {filteredJobs.map((job, index) => (
             <Marker key={job.id} position={[-1.286389 + (index * 0.01), 36.817223 + (index * 0.01)]}>
               <Popup><strong>{job.title}</strong><br/>{job.shop}<br/>{formatPrice(job.pay)}</Popup>
             </Marker>
@@ -268,8 +303,8 @@ function App() {
       <div className="job-list">
         <input type="text" placeholder="🔍 Search by job, shop, or location..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{ padding: '12px', marginBottom: '20px', width: '100%', borderRadius: '8px', border: '1px solid #ccc', fontSize: '16px', boxSizing: 'border-box' }} />
 
-        <h2>Available Jobs ({filteredJobs.length})</h2>
-        {filteredJobs.length === 0 && <p>No jobs found matching your search.</p>}
+        <h2>{viewMode === "my" ? "My Posted Jobs" : "Available Jobs"} ({filteredJobs.length})</h2>
+        {filteredJobs.length === 0 && <p>No jobs found.</p>}
         
         {filteredJobs.map(job => (
           <div key={job.id} className="job-card">
@@ -280,10 +315,19 @@ function App() {
             <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>Posted {getTimeAgo(job.created_at)}</p>
             <p className="pay-tag">{formatPrice(job.pay)}</p>
             
-            {/* WORKERS APPLY FOR FREE NOW */}
             <a href={`https://wa.me/${job.phone}?text=Hello ${job.shop}, I saw your job for a ${job.title} on FurnitureWork. I am interested!`} target="_blank" rel="noreferrer" className="apply-btn" style={{ display: 'block', textAlign: 'center', textDecoration: 'none', backgroundColor: '#25D366', color: 'white', padding: '10px', borderRadius: '5px', fontWeight: 'bold' }}>
               Apply via WhatsApp
             </a>
+
+            {/* 🟢 NEW: Delete button for Shop Owners on their own jobs */}
+            {userRole === "owner" && viewMode === "my" && (
+              <button 
+                onClick={() => handleDeleteJob(job.id)}
+                style={{ marginTop: '10px', width: '100%', padding: '8px', backgroundColor: '#d32f2f', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}
+              >
+                Delete Job
+              </button>
+            )}
 
             {/* --- COMMENTS SECTION --- */}
             <div style={{ marginTop: '15px', borderTop: '1px solid #ddd', paddingTop: '10px' }}>
@@ -316,7 +360,6 @@ function App() {
 
       {showPostForm && userRole === "owner" && (
         <div className="modal">
-          {/* Notice the onSubmit is now handlePostJobClick, which triggers Paystack first */}
           <form className="modal-content" onSubmit={handlePostJobClick}>
             <h2>Post a Job</h2>
             <p style={{ color: '#d32f2f', fontWeight: 'bold' }}>Posting a job costs KES 100.</p>
