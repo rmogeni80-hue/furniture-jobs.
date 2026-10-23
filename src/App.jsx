@@ -30,11 +30,18 @@ function getTimeAgo(dateString) {
   return `${Math.floor(seconds / 86400)} days ago`;
 }
 
+// 3. PRICE FORMATTER FUNCTION
+function formatPrice(price) {
+  if (!price) return "Contact for price";
+  let cleanPrice = price.toString().replace(/[^0-9-]/gi, ''); 
+  return `KSH ${cleanPrice}`;
+}
+
 function App() {
   const [jobs, setJobs] = useState([]);
   const [showPostForm, setShowPostForm] = useState(false);
-  
   const [userRole, setUserRole] = useState("worker"); 
+  const [searchTerm, setSearchTerm] = useState(""); 
 
   // Form States
   const [newTitle, setNewTitle] = useState("");
@@ -42,8 +49,8 @@ function App() {
   const [newPay, setNewPay] = useState("");
   const [newLocation, setNewLocation] = useState("");
   const [newPhone, setNewPhone] = useState("");
-  const [newPhoto, setNewPhoto] = useState(null); // NEW: Photo state
-  const [isUploading, setIsUploading] = useState(false); // NEW: Loading state
+  const [newPhoto, setNewPhoto] = useState(null); 
+  const [isUploading, setIsUploading] = useState(false); 
 
   useEffect(() => {
     fetchJobs();
@@ -63,7 +70,6 @@ function App() {
     setIsUploading(true);
     let imageUrl = null;
 
-    // 3. UPLOAD PHOTO TO SUPABASE STORAGE
     if (newPhoto) {
       const fileExt = newPhoto.name.split('.').pop();
       const fileName = `${Math.random()}.${fileExt}`;
@@ -79,7 +85,6 @@ function App() {
         return;
       }
 
-      // Get the public URL of the uploaded image
       const { data: publicUrlData } = supabase.storage
         .from('job-photos')
         .getPublicUrl(filePath);
@@ -87,7 +92,6 @@ function App() {
       imageUrl = publicUrlData.publicUrl;
     }
     
-    // 4. SAVE JOB TO DATABASE
     const { error } = await supabase
       .from('jobs')
       .insert([
@@ -97,7 +101,7 @@ function App() {
           pay: newPay, 
           location: newLocation, 
           phone: newPhone,
-          image_url: imageUrl // Save the image link
+          image_url: imageUrl 
         }
       ]);
 
@@ -110,6 +114,15 @@ function App() {
     }
     setIsUploading(false);
   };
+
+  const filteredJobs = jobs.filter((job) => {
+    const searchLower = searchTerm.toLowerCase();
+    return (
+      job.title?.toLowerCase().includes(searchLower) ||
+      job.shop?.toLowerCase().includes(searchLower) ||
+      job.location?.toLowerCase().includes(searchLower)
+    );
+  });
 
   return (
     <div className="app-container">
@@ -140,7 +153,7 @@ function App() {
               <Popup>
                 <strong>{job.title}</strong><br/>
                 {job.shop}<br/>
-                {job.pay} KES
+                {formatPrice(job.pay)}
               </Popup>
             </Marker>
           ))}
@@ -148,13 +161,28 @@ function App() {
       </div>
 
       <div className="job-list">
-        <h2>Available Jobs ({jobs.length})</h2>
-        {jobs.length === 0 && <p>No jobs posted yet.</p>}
+        <input 
+          type="text" 
+          placeholder="🔍 Search by job, shop, or location..." 
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          style={{ 
+            padding: '12px', 
+            marginBottom: '20px', 
+            width: '100%', 
+            borderRadius: '8px', 
+            border: '1px solid #ccc',
+            fontSize: '16px',
+            boxSizing: 'border-box'
+          }}
+        />
+
+        <h2>Available Jobs ({filteredJobs.length})</h2>
+        {filteredJobs.length === 0 && <p>No jobs found matching your search.</p>}
         
-        {jobs.map(job => (
+        {filteredJobs.map(job => (
           <div key={job.id} className="job-card">
             
-            {/* 5. SHOW PHOTO ON JOB CARD (IF IT EXISTS) */}
             {job.image_url && (
               <img 
                 src={job.image_url} 
@@ -167,12 +195,11 @@ function App() {
             <p><strong>Shop:</strong> {job.shop}</p>
             <p><strong>Location:</strong> {job.location}</p>
             
-            {/* 6. SHOW TIME AGO HERE */}
             <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
               Posted {getTimeAgo(job.created_at)}
             </p>
 
-            <p className="pay-tag">{job.pay} KES</p>
+            <p className="pay-tag">{formatPrice(job.pay)}</p>
             
             <a 
               href={`https://wa.me/${job.phone}?text=Hello ${job.shop}, I saw your job for a ${job.title} on FurnitureWork. I am interested!`} 
@@ -199,7 +226,6 @@ function App() {
             <h2>Post a Job</h2>
             <p>First job is free.</p>
             
-            {/* 7. ADDED SOFA CLEANING AND MAMA FUA TO THE DROPDOWN */}
             <select value={newTitle} onChange={(e) => setNewTitle(e.target.value)} required style={{ padding: '10px', width: '100%', marginBottom: '10px', borderRadius: '5px' }}>
               <option value="">Select Job Type</option>
               <option value="L seat seat design 7seater">L seat seat design 7seater</option>
@@ -213,7 +239,6 @@ function App() {
             <input type="text" placeholder="Location (e.g. Kasarani)" value={newLocation} onChange={(e) => setNewLocation(e.target.value)} required />
             <input type="text" placeholder="WhatsApp Number (e.g. 254712345678)" value={newPhone} onChange={(e) => setNewPhone(e.target.value)} required />
             
-            {/* 8. ADDED FILE INPUT FOR PHOTO */}
             <div style={{ margin: '10px 0' }}>
               <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px' }}>Upload Job Photo (Optional)</label>
               <input type="file" accept="image/*" onChange={(e) => setNewPhoto(e.target.files[0])} />
@@ -226,6 +251,34 @@ function App() {
           </form>
         </div>
       )}
+
+      {/* FOOTER SECTION WITH FOUNDER INFO */}
+      <footer style={{ 
+        textAlign: 'center', 
+        padding: '30px 20px', 
+        marginTop: '50px', 
+        backgroundColor: '#f4f4f4', 
+        borderTop: '1px solid #ddd',
+        color: '#555',
+        borderBottomLeftRadius: '12px',
+        borderBottomRightRadius: '12px'
+      }}>
+        <h3 style={{ margin: '0 0 5px 0', color: '#2e7d32' }}>FurnitureWork</h3>
+        <p style={{ margin: '0 0 15px 0', fontWeight: 'bold' }}>Founder: Stephen Mogeni</p>
+        
+        <p style={{ margin: '5px 0' }}>Connecting skilled workers with top furniture shops.</p>
+        
+        <p style={{ margin: '15px 0 5px 0' }}>
+          Need help or found a bug? <br/>
+          Email: <strong><a href="mailto:rmogeni80@gmail.com" style={{color: '#2e7d32', textDecoration: 'none'}}>rmogeni80@gmail.com</a></strong> <br/>
+          Phone: <strong style={{color: '#2e7d32'}}>0110448044</strong>
+        </p>
+        
+        <p style={{ marginTop: '20px', fontSize: '12px', color: '#888' }}>
+          &copy; {new Date().getFullYear()} FurnitureWork. All rights reserved.
+        </p>
+      </footer>
+
     </div>
   );
 }
