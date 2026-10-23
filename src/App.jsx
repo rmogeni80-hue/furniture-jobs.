@@ -52,6 +52,11 @@ function App() {
   const [userRole, setUserRole] = useState("worker"); 
   const [searchTerm, setSearchTerm] = useState(""); 
 
+  // --- COMMENT STATES (Moved inside App) ---
+  const [comments, setComments] = useState([]);
+  const [newComment, setNewComment] = useState('');
+  const [activeJobId, setActiveJobId] = useState(null);
+
   // Form States
   const [newTitle, setNewTitle] = useState("");
   const [newShop, setNewShop] = useState("");
@@ -80,6 +85,47 @@ function App() {
   useEffect(() => {
     fetchJobs();
   }, []);
+
+  // --- COMMENT FUNCTIONS (Moved inside App) ---
+  useEffect(() => {
+    const fetchComments = async () => {
+      const { data } = await supabase.from('comments').select('*');
+      if (data) setComments(data);
+    };
+    fetchComments();
+  }, []);
+
+  const handlePostComment = async (e, jobId) => {
+    e.preventDefault();
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
+      alert("Please log in to post a comment.");
+      return;
+    }
+
+    const text = newComment;
+    if (!text) return;
+
+    const { error } = await supabase
+      .from('comments')
+      .insert([{
+        job_id: jobId,
+        user_id: user.id,
+        user_name: user.email,
+        comment_text: text
+      }]);
+
+    if (!error) {
+      setNewComment(''); // Clear the input
+      // Refresh the comments list
+      const { data } = await supabase.from('comments').select('*');
+      if (data) setComments(data);
+    } else {
+      alert("Error posting comment.");
+      console.log(error);
+    }
+  };
 
   const fetchJobs = async () => {
     const { data, error } = await supabase
@@ -295,6 +341,48 @@ function App() {
             <a href={`https://wa.me/${job.phone}?text=Hello ${job.shop}, I saw your job for a ${job.title} on FurnitureWork. I am interested!`} target="_blank" rel="noreferrer" className="apply-btn" style={{ display: 'block', textAlign: 'center', textDecoration: 'none' }}>
               Apply via WhatsApp
             </a>
+            {/* --- COMMENTS SECTION --- */}
+            <div style={{ marginTop: '15px', borderTop: '1px solid #ddd', paddingTop: '10px' }}>
+              
+              <button 
+                type="button"
+                onClick={() => setActiveJobId(activeJobId === job.id ? null : job.id)}
+                style={{ background: 'none', border: 'none', color: '#2e7d32', fontWeight: 'bold', cursor: 'pointer', padding: 0 }}
+              >
+                {activeJobId === job.id ? 'Hide Comments' : 'View / Add Comments'}
+              </button>
+
+              {activeJobId === job.id && (
+                <div style={{ marginTop: '10px' }}>
+                  
+                  {/* List Comments */}
+                  {comments.filter(c => c.job_id === job.id).length === 0 ? (
+                    <p style={{ fontSize: '13px', color: '#666' }}>No comments yet.</p>
+                  ) : (
+                    comments.filter(c => c.job_id === job.id).map(c => (
+                      <div key={c.id} style={{ background: '#f5f5f5', padding: '8px', borderRadius: '5px', marginBottom: '5px', fontSize: '13px' }}>
+                        <strong>{c.user_name.split('@')[0]}: </strong> {c.comment_text}
+                      </div>
+                    ))
+                  )}
+
+                  {/* Input Form */}
+                  <form onSubmit={(e) => handlePostComment(e, job.id)} style={{ display: 'flex', gap: '5px', marginTop: '10px' }}>
+                    <input 
+                      type="text" 
+                      value={newComment}
+                      onChange={(e) => setNewComment(e.target.value)}
+                      placeholder="Ask a question..." 
+                      style={{ flex: 1, padding: '8px', borderRadius: '5px', border: '1px solid #ccc', fontSize: '13px' }}
+                    />
+                    <button type="submit" style={{ background: '#333', color: 'white', padding: '8px 12px', borderRadius: '5px', border: 'none', cursor: 'pointer', fontSize: '13px' }}>
+                      Post
+                    </button>
+                  </form>
+
+                </div>
+              )}
+            </div>
           </div>
         ))}
       </div>
